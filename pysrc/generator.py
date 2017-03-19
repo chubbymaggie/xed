@@ -193,7 +193,7 @@ def setup_arg_parser():
                           action='store', 
                           dest='structured_output_fn', 
                           default='xed-sout.txt',
-                          help='Emit structured ouptut file')
+                          help='Emit structured output file')
     arg_parser.add_option('--patterns',
                           action='store',
                           dest='structured_input_fn', 
@@ -2316,7 +2316,7 @@ def at_end_of_instructions(ilist, bitpos):
    return 0 # not done yet
 
 def no_dont_cares(instructions, bitpos):
-   "Return True if there are no dont cares"
+   "Return True if there are no don't cares"
    for i in instructions:
       if i.ipattern.bits[bitpos].is_dont_care():
          return False
@@ -2417,12 +2417,12 @@ def build_sub_graph(common, graph, bitpos, skipped_bits):
 
    # expand_dont_cares is an important control for the graph
    # building. If expand_dont_cares is false, whenever we see a
-   # dont-care in some thing at the next bit position, then we skip
+   # don't-care in some thing at the next bit position, then we skip
    # that bit in the graph formation. This leads to problems when
    # skipped 1s and 0s are required to disambiguate the tree
    # downstream. When expand_dont_cares is true, then whenever we have
-   # some 1s or 0s that happen to collide with a dont-care in some
-   # thing at the next bit positiona, then we copy all the dont-care
+   # some 1s or 0s that happen to collide with a don't-care in some
+   # thing at the next bit positiona, then we copy all the don't-care
    # ("others") on both zero and one successor nodes. Something down
    # stream will disambiguate them necessarily. The nice thing about
    # expand_dont_cares being true is that (a) one does not have the
@@ -2746,7 +2746,7 @@ def build_sub_graph(common, graph, bitpos, skipped_bits):
          znode = new_node(graph,'0',bitpos)
          if len(zeros) > 0:
             znode.instructions.extend(zeros)
-         # Add the "dont-care others" to the zeros
+         # Add the "don't-care others" to the zeros
          znode.instructions.extend(others) 
          build_sub_graph(common,znode,bitpos, 0)  # RECUR
 
@@ -2754,7 +2754,7 @@ def build_sub_graph(common, graph, bitpos, skipped_bits):
          onode = new_node(graph,'1',bitpos)
          if len(ones) > 0:
             onode.instructions.extend(ones)
-         # Add the "dont-care others" to the ones
+         # Add the "don't-care others" to the ones
          onode.instructions.extend(others) 
          build_sub_graph(common,onode,bitpos, 0)  # RECUR
 
@@ -2954,6 +2954,7 @@ def find_all_operands(options, node):
 
 def collect_instruction_types(agi, master_list):
    """Collect the iclass / category /extension"""
+   need_to_die = False
    for generator in agi.generator_list:
       for ii in generator.parser_output.instructions:
          if field_check(ii, 'iclass'):
@@ -2970,14 +2971,19 @@ def collect_instruction_types(agi, master_list):
                  plist, 
                  iclass_string_index)
             if ii.iform_enum  in master_list:
-               # duplicate iform - check ext/category
+               # duplicate iform - check extension and isa-set
                (oldi, olde, oldc, 
                 olds, oldp, oldisi) = master_list[ii.iform_enum]
                if olde != ii.extension:
-                  mbuild.die("EXTENSION ALIASING IN IFORM TABLE", ii.iform_enum)
+                  need_to_die = True
+                  msgb("ERROR:EXTENSION ALIASING IN IFORM TABLE", ii.iform_enum)
+               if olds != ii.isa_set:
+                  msgb("ERROR: ISA_SET ALIASING IN IFORM TABLE", ii.iform_enum)
+                  need_to_die = True
                msgb("DUPLICATE IFORM", ii.iform_enum)
             master_list[ii.iform_enum] = t                  
-
+   if need_to_die:
+      mbuild.die("Dieing due to iform aliasing")
 
 def collect_isa_sets(agi):
    """Collect the isaset info"""
@@ -3270,37 +3276,7 @@ def cmp_invalid_vtuple(vt1,vt2):
       return 1
    return -1
 
-splitter_pattern= re.compile(r'(?P<prefix>[A-Za-z]+)(?P<suffix>[0-9]*)')
-def alnum_cmp(a,b):
-   """Compare a and b. Assume the are of the form
-   letters-followed-by-numbers. The number part is optional.
-   """
-   global splitter_pattern
-   
-   ap = splitter_pattern.match(a)
-   bp = splitter_pattern.match(b)
-   (aprefix,asuffix) = ap.group('prefix', 'suffix')
-   (bprefix,bsuffix) = bp.group('prefix', 'suffix')
-   if aprefix<bprefix:
-      return -1
-   if aprefix>bprefix:
-      return 1
-   # aprefix == bprefix
-   if asuffix and bsuffix:
-      iasuffix = int(asuffix)
-      ibsuffix = int(bsuffix)
-      if iasuffix < ibsuffix:
-         return -1
-      if iasuffix > ibsuffix:
-         return 1
-      return 0
-   if asuffix:
-      return 1
-   if bsuffix:
-      return -1
-   return 0
-    
-############################################################################
+
 class rep_obj_t(object):
     def __init__(self, iclass, indx, repkind):
         self.iclass = iclass
@@ -3568,7 +3544,7 @@ def emit_enum_info(agi):
        xed3_nt_enum_val_map[i] = upper_dict[upper_nt]
    agi.xed3_nt_enum_val_map = xed3_nt_enum_val_map
 
-   operand_names.sort(cmp=alnum_cmp)
+   operand_names.sort()
    add_invalid(operand_names)
    on_enum = enum_txt_writer.enum_info_t(operand_names, xeddir, gendir,
                                          'xed-operand', 
@@ -3735,35 +3711,32 @@ def compute_iform(options,ii, operand_storage_dict):
 def compute_iforms(options, gi, operand_storage_dict):
    """Classify the operand patterns"""
 
-   # look ath the first instruction
+   # look at the first parser record to see if it contains actual
+   # instructions.
    ii = gi.parser_output.instructions[0]
    if not field_check(ii,'iclass'):
     return None
 
-   iforms = {} # dictionary operand tuples pointing instructions
-   ii_iforms = {}
+   iforms = {} # dict by iform pointing instructions recs
+   ii_iforms = {} # dict by iclass of iform names
    for ii in gi.parser_output.instructions:
-      #if ii.iclass == 'VMOVUPS':
-      #   msge("II: %s" %( str(ii)))
       iform  = compute_iform(options,ii,operand_storage_dict)
-      #msge("MADE IFORM %s %s" % (ii.iclass, str(iform)))
       if viform():
          msge("IFORM %s %s" % (ii.iclass, str(iform)))
       s = "_".join(iform)
-      if ii.iform_input:
-         #msge("Overriding COMPUTED iform: %s with user-specified iform: %s" % 
-         #     (s,ii.iform_input))
+      if ii.iform_input: # override from grammar input
          s = ii.iform_input
       ii.iform_enum = s
-      
-      try:
-         iforms[s].append(ii)
-      except:
-         iforms[s]=[ii]
-      try:
-         ii_iforms[ii.iclass].append(s)
-      except:
-         ii_iforms[ii.iclass]=[s]
+
+      if viform():
+          try:
+             iforms[s].append(ii)
+          except:
+             iforms[s]=[ii]
+          try:
+             ii_iforms[ii.iclass].append(s)
+          except:
+             ii_iforms[ii.iclass]=[s]
 
    # printing various ways
    if viform():
@@ -4438,7 +4411,7 @@ def generate_iform_first_last_enum(agi,options,values):
 global_max_iforms_per_iclass = 0
 
 def collect_and_emit_iforms(agi,options):
-   iform_dict = {} # build dictionary by iclass of iforms
+   iform_dict = {} # build dictionary by iclass of [iform,...]
    for generator in agi.generator_list:
       ii = generator.parser_output.instructions[0]
       if not field_check(ii,'iclass'):
@@ -4453,9 +4426,7 @@ def collect_and_emit_iforms(agi,options):
    vtuples = [('INVALID', 0, 'INVALID') ]
    imax = {} # maximum number of iforms per iclass
    for ic,ol in iform_dict.iteritems():
-      #msge("XZ BEFORE " + ic + " --- " + str(ol))
       ol = uniqueify(ol)
-      #msge("XZ AFTER  " + ic + " --- " + str(ol))
       sz= len(ol)
       vsub = zip([ic.upper()]*sz,   # the iclass
                  range(0,sz),       # number the iforms
@@ -4547,20 +4518,6 @@ def collect_and_emit_iforms(agi,options):
 
       cfp.write('  /* %25s */  %2d' % (ic,firstiform))
    cfp.write('\n};\n')
-
-   if 0:
-      # this is not required now that we have the xed_iform_info_t
-      cfp.write('const xed_iclass_enum_t ' + 
-                'xed_iform_to_iclass_table[XED_IFORM_LAST] = {\n')
-      first = True
-      niform = 0 # total number of iforms
-      for (iclass, n, iform, k, s)  in ntuples:
-         if first:
-            first = False
-         else:
-            cfp.write(',\n')
-         cfp.write('  /* %25s */  XED_ICLASS_%s' % (iform,iclass))
-      cfp.write('\n};\n')
 
    cfp.close()
    
@@ -5148,9 +5105,9 @@ class all_generator_info_t(object):
       self.attr_next_pos  = 0
       self.attributes_ordered  = None
       self.sorted_attributes_dict = {}
-      # a dict of all the enum names to thier values. 
+      # a dict of all the enum names to their values. 
       # passed to operand storage in order to calculate 
-      # the number of requiered bits
+      # the number of required bits
       self.all_enums = {} 
 
       # these are xed_file_emitter_t objects
@@ -5758,7 +5715,7 @@ def read_cpuid_mappings(fn):
     d = {} # isa-set to list of cpuid records
     for line in lines:
         wrds = line.split(':')
-        isa_set = wrds[0]
+        isa_set = wrds[0].strip()
         #cpuid_bits = re.sub('[.]','_',wrds[1].upper()).split()
         cpuid_bits = wrds[1].upper().split()
         if isa_set in d:
@@ -5827,6 +5784,18 @@ def make_cpuid_mappings(agi,mappings):
         fp.add_code(s)
     fp.add_code('};')
 
+    # check that each isa set in the cpuid files has a corresponding XED_ISA_SET_ value
+    fail = False
+    for cisa in mappings.keys():
+        t = re.sub('XED_ISA_SET_','',cisa)
+        if t not in agi.all_enums['xed_isa_set_enum_t']:
+            fail = True
+            genutil.warn("bad isa_set referenced cpuid file: {}".format(cisa))
+    if fail:
+        die("Found bad isa_sets in cpuid input files.")
+                    
+
+        
     
     # emit initialized structure of isa-set mapping to array of cpuid bit string enum.
     n = 4
@@ -5884,7 +5853,7 @@ def emit_regs_enum(options, regs_list):
     
    #FIXME: sort the register names by their type. Collect all the
    #types-and-widths, sort them by their ordinals. Special handling
-   #for the AH/BH/CH/DH registers is requried.
+   #for the AH/BH/CH/DH registers is required.
 
    enumvals = refine_regs.rearrange_regs(regs_list)
 

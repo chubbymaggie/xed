@@ -22,8 +22,7 @@ END_LEGAL */
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
-#include "xed-interface.h"
-#include "xed-portability.h"
+#include "xed/xed-interface.h"
 #include "xed-examples-util.h"
 #include "xed-enc-lang.h"
 
@@ -591,7 +590,7 @@ parse_encode_request(ascii_encode_request_t areq)
         // as XED_OPERAND_REG0. We incremenet regnum (below) every time we
         // add a register operands.
         r = XED_CAST(xed_operand_enum_t,XED_OPERAND_REG0 + regnum);
-        // store the register identifer in the operand storage field
+        // store the register identifier in the operand storage field
         xed_encoder_request_set_reg(&req, r, reg);
         // store the operand storage field name in the encode-order array
         xed_encoder_request_set_operand_order(&req, operand_index, r);

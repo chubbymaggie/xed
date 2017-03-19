@@ -18,10 +18,10 @@ END_LEGAL */
 /// @file xed-disas-pecoff.h
 
 
-#if !defined(_XED_DISAS_PECOFF_H_)
-# define _XED_DISAS_PECOFF_H_
+#if !defined(XED_DISAS_PECOFF_H)
+# define XED_DISAS_PECOFF_H
 
-# include "xed-interface.h" 
+# include "xed/xed-interface.h" 
 # include "xed-examples-util.h" 
 
 void xed_disas_pecoff(xed_disas_info_t* fi);

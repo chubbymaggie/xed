@@ -938,7 +938,7 @@ class rule_t(object):
         has_otherwise_rule = self.has_otherwise_rule()
         
         #complicated_nt are nonterminals that can not be auto generated using 
-        #hash function and look uptables due to thier complexity
+        #hash function and look uptables due to their complexity
         #so we generete them in the old if statement structure 
         complicated_nt = nt_func_gen.get_complicated_nt()        
         
@@ -2073,7 +2073,7 @@ class encoder_configuration_t(object):
                 continue
 
             if p_short in storage_fields and p == 'BCRC=1':
-                # FIXME: 2016-01-28: MJC: HACK TO ENCODE ROUNDC/SAE CONTRAINTS
+                # FIXME: 2016-01-28: MJC: HACK TO ENCODE ROUNDC/SAE CONSTRAINTS
                 if 'SAE' in pattern_str:
                     modal_patterns.append("SAE!=0")
                 else:
@@ -2208,7 +2208,11 @@ class encoder_configuration_t(object):
         # FIXME do something with the operand/conditions and patterns/actions
         iform = iform_t(iclass, conditions, actions, modal_patterns, uname)
 
-        if 'VEXVALID=2' in ipattern:  # EVEX
+        if uname == 'NOP0F1F':
+            # We have many fat NOPS, 0F1F is the preferred one so we
+            # give it a higher priority in the iform sorting. 
+            iform.priority = 0
+        elif 'VEXVALID=2' in ipattern:  # EVEX
             # FIXME: 2016-01-28: MJC: hack. 1st check patterns w/ ROUNDC/SAE.
             # (See other instance of BCRC=1 in this file)
             if 'BCRC=1' in ipattern:
