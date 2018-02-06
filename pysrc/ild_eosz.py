@@ -1,6 +1,6 @@
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -77,7 +77,9 @@ def _resolve_conflicts(agi, info_list, nt_dict):  # NOT USED
 #FIXME: use info_list instead?
 def get_getter_fn(ptrn_list):
     if len(ptrn_list) == 0:
-        l1_fn = '(%s)0' % (ildutil.ild_getter_typename)
+        #l1_fn = '(%s)0' % (ildutil.ild_getter_typename)
+        genutil.die("P2342: SHOULD NOT REACH HERE")
+
     first = ptrn_list[0]
     for cur in ptrn_list[1:]:
         if first.eosz_nt_seq != cur.eosz_nt_seq:
@@ -109,6 +111,7 @@ def gen_getter_fn_lookup(agi, united_lookup, eosz_dict): # NOT USED
                 is_conflict = is_eosz_conflict(info_list)
             
             if is_conflict:
+                genutil.msg("EOSZ CONFLICT MAP/OPCODE:{}/{}".format(insn_map, opcode))
 #                l1_fo = _resolve_conflicts(agi, info_list, nt_dict)
 #                if not l1_fo:
 #                    ildutil.ild_err('FAILED TO GENERATE CONFLICT ' +
@@ -203,17 +206,17 @@ def work(agi, united_lookup, eosz_nts, ild_gendir, debug):
             return None
         nt_seq_arrays[tuple(nt_seq)] = array
     #init function calls all single init functions for the created tables
-    init_f = ild_nt.gen_init_function(nt_seq_arrays.values(), 
+    init_f = ild_nt.gen_init_function(list(nt_seq_arrays.values()), 
                                       'xed_ild_eosz_init')
     #dump init and lookup functions for EOSZ sequences
-    ild_nt.dump_lu_arrays(agi, nt_seq_arrays.values(), _eosz_c_fn,
+    ild_nt.dump_lu_arrays(agi, list(nt_seq_arrays.values()), _eosz_c_fn,
                           mbuild.join('include-private', _eosz_header_fn),
                           init_f)
     #generate EOSZ getter functions - they get xed_decoded_inst_t*
     #and return EOSZ value (corresponding to EOSZ NT sequence 
     #that they represent) 
     getter_fos = []
-    for names in nt_seq_arrays.keys():
+    for names in list(nt_seq_arrays.keys()):
         arr = nt_seq_arrays[names]
         getter_fo = ild_codegen.gen_derived_operand_getter(agi, _eosz_token,
                                                            arr, list(names))

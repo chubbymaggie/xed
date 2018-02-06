@@ -42,6 +42,18 @@ a32         i32       8  # bound
 b           u8        1
 d           i32       4
 #
+i8          i8        1
+u8          u8        1
+i16         i16       2
+u16         u16       2
+i32         i32       4
+u32         u32       4
+i64         i64       8
+u64         u64       8
+f16         f16       2  # IVB converts
+f32         f32       4
+f64         f64       8 
+#
 dq          i32      16
 #
 xub        u8        16
@@ -94,6 +106,7 @@ w           i16       2
 z           int       2    4   4 
 spw8        int      16   32   0  # varies (64b invalid)         STACK POINTER WIDTH
 spw         int       2    4   8  # varies                       STACK POINTER WIDTH
+spw5        int      10   20  40  # varies (IRET approx)         STACK POINTER WIDTH
 spw3        int       6   12  24  # varies (IRET approx)         STACK POINTER WIDTH
 spw2        int       4    8  16  # varies (FAR call/ret approx) STACK POINTER WIDTH
 i1          int   1bits

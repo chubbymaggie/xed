@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -16,7 +16,11 @@
 #  limitations under the License.
 #  
 #END_LEGAL
-import re,types,sys,os
+from __future__ import print_function
+import re
+import types
+import sys
+import os
 import genutil
 import codegen
 import enum_txt_writer
@@ -55,18 +59,18 @@ class constant_table_t(object):
         self.name=None
         self.operand=None
         self.value_string_pairs=[]
-        self.nlines = 0
+        
     def valid(self):
         if self.name != None:
            return True
         return False
     def dump(self):
-        print "%s(%s)::" % (self.name, self.operand)
+        print("%s(%s)::" % (self.name, self.operand))
         for (v,p) in self.value_string_pairs:
-            if isinstance(p, types.StringType):
-                print "%s '%s'" % (hex(v),p)
+            if genutil.is_stringish(p):
+                print("%s '%s'" % (hex(v),p))
             else:
-                print "%s  error" %(hex(v))
+                print("%s  error" %(hex(v)))
 
     def emit_init(self):
         lines = []
@@ -74,7 +78,7 @@ class constant_table_t(object):
         lines.append('static const char* %s[] = {' % (self.string_table_name))
 
         for (v,p) in self.value_string_pairs:
-            if isinstance(p, types.StringType):
+            if genutil.is_stringish(p):
                 lines.append( '/*%s*/ "%s",' % (hex(v),p))
             else:
                 lines.append( '/*%s*/ 0, /* error */' % (hex(v)))
@@ -82,66 +86,61 @@ class constant_table_t(object):
         return lines
 
         
-    def read(self, lines):
-        """Read lines from lines until a new header or a blank line is reached"""
-        started = False
-        while 1:
-            if not lines:
-                break
-            self.nlines += 1            
-            line = lines[0]
-            line = line.strip()
-            line = re.sub(r'#.*','',line)
-            m= constant_table_t.match_blank.match(line)
-            if m:
-                del lines[0]
-                continue
-
-            m= constant_table_t.match_header.match(line)
-            if m:
-                if started:
-                    return
-                else:
-                    started = True
-                    del lines[0]
-                    self.name = m.group('name')
-                    self.operand = m.group('operand')
-                    continue
-            m = constant_table_t.match_pair.match(line)
-            if m:
-                value = m.group('value')
-                symbol = m.group('symbol')
-                numeric_value = genutil.make_numeric(value)
-                #print "INPUT: [%s] [%s]" % (value,symbol)
-                self.value_string_pairs.append((numeric_value,symbol))
-                del lines[0]
-                continue
-            m = constant_table_t.match_pair_error.match(line)
-            if m:
-                value = m.group('value')
-                numeric_value = genutil.make_numeric(value)
-                self.value_string_pairs.append((numeric_value,None))
-                del lines[0]
-                continue
-            else:
-                genutil.die("Could not parse line %d: [%s]\n\n" % (self.nlines,line))
+def _read_constant_tables(lines, tables):
+    """Read lines from lines until a new header or a blank line is reached"""
+    nlines = 0
+    y = None
+    for line in lines:
+        nlines += 1            
+        line = line.strip()
+        line = re.sub(r'#.*','',line)
+        m = constant_table_t.match_blank.match(line)
+        if m:
+            continue
+        m = constant_table_t.match_header.match(line)
+        if m: # found next header
+            name = m.group('name')
+            y = None
+            for t in tables:
+                if t.name == name:
+                    y = t
+            if not y:
+                y = constant_table_t()
+                tables.append(y)
+                y.name = name
+                y.operand = m.group('operand')
+            continue
+        m = constant_table_t.match_pair.match(line)
+        if m:
+            value = m.group('value')
+            symbol = m.group('symbol')
+            numeric_value = genutil.make_numeric(value)
+            #print "INPUT: [%s] [%s]" % (value,symbol)
+            if not y:
+                genutil.die("Malformed constant table line {}: [{}]\n\n".format(nlines,line))
+            y.value_string_pairs.append((numeric_value,symbol))
+            continue
+        m = constant_table_t.match_pair_error.match(line)
+        if m:
+            value = m.group('value')
+            numeric_value = genutil.make_numeric(value)
+            if not y:
+                genutil.die("Malformed constant table line {}: [{}]\n\n".format(nlines,line))
+            y.value_string_pairs.append((numeric_value,None))
+            continue
+        else:
+            genutil.die("Could not parse line {}: [{}]\n\n".format(nlines,line))
                 
         
     
     
 def work(lines,   xeddir = '.',   gendir = 'obj'):
    tables = []
-   while lines:
-       y = constant_table_t()
-       y.read(lines)
-       #y.dump()
-       olines = y.emit_init()
-       #for l in olines:
-       #    print l
-       tables.append(y)
+   _read_constant_tables(lines,tables)
+
        
-   tables=filter(lambda(x): x.valid() , tables)
-   names=map(lambda(x): x.name , tables)
+   tables=list(filter(lambda x: x.valid() , tables))
+   names= [  x.name  for x in  tables ]
 
    srcs = emit_convert_enum(['INVALID'] + names, xeddir, gendir)
    src_file_name = 'xed-convert-table-init.c'
@@ -159,7 +158,7 @@ def work(lines,   xeddir = '.',   gendir = 'obj'):
    
    for t in tables:
        l = t.emit_init()
-       l = map(lambda(x): x+'\n', l)
+       l = [  x+'\n' for x in  l]
        xfe.writelines(l)
    fo = codegen.function_object_t('xed_init_convert_tables', 'void')
    
@@ -188,7 +187,7 @@ def work(lines,   xeddir = '.',   gendir = 'obj'):
    hdr.append("   unsigned int limit;\n")
    hdr.append("} xed_convert_table_t;")
    hdr.append("extern xed_convert_table_t xed_convert_table[XED_OPERAND_CONVERT_LAST];")
-   hfe.writelines(map(lambda(x): x+'\n', hdr))
+   hfe.writelines( [  x+'\n' for x in hdr] )
    hfe.close()
 
    srcs.append(hfe.full_file_name)
@@ -197,6 +196,6 @@ def work(lines,   xeddir = '.',   gendir = 'obj'):
 
 if __name__ == '__main__':
    import sys
-   lines = file(sys.argv[1]).readlines()
+   lines = open(sys.argv[1],'r').readlines()
    srcs = work(lines,xeddir='.',gendir='obj')
-   print "WROTE: ", "\n\t".join(srcs)
+   print("WROTE: ", "\n\t".join(srcs))

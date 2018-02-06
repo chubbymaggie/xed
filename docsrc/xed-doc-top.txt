@@ -24,7 +24,7 @@
 @mainpage X86 Encoder Decoder User Guide
 by Mark Charney
 
-2016-02-02
+2017-11-29
 
 @section INTRO Introduction
 
@@ -44,7 +44,7 @@ Intel XED was designed to be very fast and extensible.
 
 Intel XED compiles with the following compilers:
     <ul>   
-    <li> GNU Gcc
+    <li> GNU GCC
     <li> Microsoft Visual Studio
     <li> Intel ICL/ICC
     <li> LLVM/Clang 
@@ -151,8 +151,8 @@ Optional:
 @section TERMS Terminology
 
 
-X86 instructions are 1-15 byte values. They consist of several well
-defined components:
+X86 instructions are 1-15 byte values. They consist of several
+well-defined components:
     <ul>
     <li> Prefix bytes. 
          <ul>
@@ -214,7 +214,7 @@ The legacy prefix bytes are used for:
 There are 11 distinct legacy prefixes. Three of them (operand size,
 and the two repeat prefixes) have different meanings in different
 contexts; Sometimes they are used for opcode refinement and do not
-have their default meaning. Less frequently. two of the segment
+have their default meaning. Less frequently, two of the segment
 overrides can be used for conditional branch hints.
 
 There are also multiple ways to encode certain instructions, with the
@@ -315,7 +315,7 @@ sequences from the Intel&reg; 64 and IA-32 Architectures Software Developers Man
 
 The instruction 0x90 is very special in the instruction set because it
 gets special treatment in 64b mode. In 64b mode, 32b register writes
-normally zero the upper 32 bits of a 64b register. No so for 0x90. If
+normally zero the upper 32 bits of a 64b register. Not so for 0x90. If
 it did zero the upper 32 bits, it would not be a NOP.
 
 There are two important NOP categories. XED_CATEGORY_NOP and
@@ -981,12 +981,6 @@ specify a memory operation width. This can be accomplished by
 indicating a number of bytes just after the MEM specifier. For
 example: MEM2:EAX indicates a 2 byte memory operation. 
 
-- If the Haswell gather instructions are included in the build, then
-you can also specify a VSIB memop as follows: VSIB4:RAX,YMM2,2,ff.
-This would be a memory operand for a gather with RAX as the base, YMM2
-as the gather index register. The scale is 2 and the displacement is
-0xff. The element size is 4 (dwords, 4 bytes). Use 8 for qwords (8
-bytes).
 
 - An address generation specifer that has the same syntax as the above
 MEM: specifier, but is only used for LEA instructions.  Example:
@@ -1005,6 +999,7 @@ One of the following is required:
   -d hex-string             (decode one instruction)
   -e instruction            (encode, must be last)
   -de hex-string            (decode-then-encode)
+  -F prefix		    (filter input with prefix)
  
 Optional arguments:
   -v verbosity  (0=quiet, 1=errors, 2=useful-info, 3=trace, 5=very verbose)
@@ -1051,6 +1046,10 @@ PUSH INT_ALU BASE  Opcode: 6a  Immed: 00 Bytes: 2
 
 % xed -e MOV EAX MEM4:SS:ESP
 Encodable! 8b0424
+
+% echo '7f550c23efa1 __clone+0x31 insn: 48 85 c0' | xed -F insn: -A
+7f550c23efa1 __clone+0x31       test %rax, %rax
+
 @endcode 
 
 Or using the xed-ex3 example tool:

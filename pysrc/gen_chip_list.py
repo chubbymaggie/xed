@@ -2,7 +2,7 @@
 # -*- python -*-
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 #  limitations under the License.
 #  
 #END_LEGAL
-
+from __future__ import print_function
 import os
 import sys
 import argparse
@@ -53,7 +53,9 @@ def work(args):  # main function
     (chips, chip_db) = chipmodel.read_database(args.chip_filename)
 
     xeddb = read_xed_db.xed_reader_t(args.state_bits_filename,
-                                     args.instructions_filename)
+                                     args.instructions_filename,
+                                     args.widths_filename,
+                                     args.element_types_filename)
 
     isasets = set()
     for r in xeddb.recs:
@@ -89,7 +91,7 @@ def work(args):  # main function
 
     for inst in xeddb.recs:
         if classes[inst.isa_set] == 'general' and inst.scalar:
-            print "GPR SCALAR", inst.iclass
+            print("GPR SCALAR", inst.iclass)
 
     tlist = []
     for s in all:
@@ -106,7 +108,7 @@ def work(args):  # main function
     tlist.sort(key=keyfn)
 
     for x,y in tlist:
-        print y
+        print(y)
 
     return 0
 
@@ -119,6 +121,10 @@ def setup():
     parser.add_argument('instructions_filename', 
                         help='Input instructions file')
     parser.add_argument('chip_filename', 
+                        help='Input chip file')
+    parser.add_argument('widths_filename', 
+                        help='Input chip file')
+    parser.add_argument('element_types_filename', 
                         help='Input chip file')
     args = parser.parse_args()
     return args

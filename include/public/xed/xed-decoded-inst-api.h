@@ -1,6 +1,6 @@
 /*BEGIN_LEGAL 
 
-Copyright (c) 2016 Intel Corporation
+Copyright (c) 2017 Intel Corporation
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -319,7 +319,10 @@ xed_decoded_inst_get_stack_address_mode_bits(const xed_decoded_inst_t* p) {
 /// Returns the operand width in bits: 8/16/32/64. This is different than
 /// the #xed_operand_values_get_effective_operand_width() which only
 /// returns 16/32/64. This factors in the BYTEOP attribute when computing
-/// its return value. This is a convenience function.
+/// its return value. This function provides a information for that is only
+/// useful for (scalable) GPR-operations. Individual operands have more
+/// specific information available from
+/// #xed_decoded_inst_operand_element_size_bits()
 /// @ingroup DEC
 XED_DLL_EXPORT xed_uint32_t
 xed_decoded_inst_get_operand_width(const xed_decoded_inst_t* p);
@@ -663,9 +666,26 @@ xed_decoded_inst_set_user_data(xed_decoded_inst_t* p,
                                xed_uint64_t new_value) {
     p->u.user_data = new_value;
 }
+//@}
 
-
-
+/// @name xed_decoded_inst_t Classifiers
+//@{
+/// @ingroup DEC
+/// True for AVX512 (EVEX-encoded) SIMD and (VEX encoded) K-mask instructions
+XED_DLL_EXPORT xed_bool_t
+xed_classify_avx512(const xed_decoded_inst_t* d);
+/// @ingroup DEC
+/// True for AVX512 (VEX-encoded) K-mask operations
+XED_DLL_EXPORT xed_bool_t
+xed_classify_avx512_maskop(const xed_decoded_inst_t* d);
+/// @ingroup DEC
+/// True for AVX/AVX2 SIMD VEX-encoded operations. Does not include BMI/BMI2 instructions.
+XED_DLL_EXPORT xed_bool_t
+xed_classify_avx(const xed_decoded_inst_t* d);
+/// @ingroup DEC
+/// True for SSE/SSE2/etc. SIMD operations.  Includes AES and PCLMULQDQ
+XED_DLL_EXPORT xed_bool_t
+xed_classify_sse(const xed_decoded_inst_t* d);
 
 //@}
 #endif

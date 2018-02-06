@@ -2,7 +2,7 @@
 # -*- python -*-
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 #  limitations under the License.
 #  
 #END_LEGAL
-
+from __future__ import print_function
 import sys
 import os
 import re
@@ -44,11 +44,11 @@ def uniquify_list(l):
     d = {}
     for a in l:
         d[a]=True
-    return d.keys()
+    return list(d.keys())
 
 def expand_all_of_once(d):
     found = False
-    for chip,ext_list in d.iteritems():
+    for chip,ext_list in d.items():
         newexts = []
         for ext in ext_list:
             m = all_of_pattern.match(ext)
@@ -68,7 +68,7 @@ def expand_macro(d,expander):
         found = expander(d)
 
 def expand_macro_not(d):
-    for chip,ext_list in d.iteritems():
+    for chip,ext_list in d.items():
         to_remove = []
         positive_exts = []
         for ext in ext_list:
@@ -88,6 +88,8 @@ def expand_macro_not(d):
         d[chip]  = uniquify_list(positive_exts)
 
 def  parse_lines(input_file_name, lines): # returns a dictionary
+    """Return a list of chips and a dictionary indexed by chip containing
+    lists of isa-sets    """
     d = {}
     chips = []
     for line in lines:
@@ -118,7 +120,7 @@ def _feature_index(all_features, f):
 
 
 def read_database(filename):
-    lines = file(filename).readlines()
+    lines = open(filename,'r').readlines()
     lines = filter_comments(lines)
     lines = genutil.process_continuations(lines)
     # returns a list and a dictionary
@@ -127,11 +129,33 @@ def read_database(filename):
     expand_macro(chip_features_dict,expand_all_of_once)
     expand_macro_not(chip_features_dict)
 
-    return (chips,chip_features_dict) 
+    return (chips,chip_features_dict)
 
+
+def _format_names(lst):
+    cols = 4
+    lines = ('\t'.join(lst[i:i+cols]) for i in range(0,len(lst),cols))
+    return '\n\t'.join(lines)
+            
+def dump_chip_hierarchy(arg, chips, chip_features_dict):
+    fe = codegen.xed_file_emitter_t(arg.xeddir, 
+                                     arg.gendir, 
+                                     'cdata.txt', 
+                                     shell_file=True)
+    fe.start(full_header=False)
+    for c in chips:
+        fl = chip_features_dict[c]
+        fl.sort()
+        s = "{} :\n".format(c)
+        s = s + '\t' + _format_names(fl)  + '\n'
+        fe.write(s)
+    fe.close()
+    return fe.full_file_name
+    
 def work(arg):
     (chips,chip_features_dict) = read_database(arg.input_file_name) 
 
+    isa_set_per_chip_fn = dump_chip_hierarchy(arg, chips, chip_features_dict)
     # the XED_CHIP_ enum
     chips.append("ALL")
     chip_enum =  enum_txt_writer.enum_info_t(['INVALID'] + chips,
@@ -148,7 +172,7 @@ def work(arg):
     
     # the XED_ISA_SET_ enum
     isa_set = set()
-    for vl in chip_features_dict.values():
+    for vl in list(chip_features_dict.values()):
         for v in vl:
             isa_set.add(v.upper())
     isa_set = list(isa_set)
@@ -226,12 +250,14 @@ def work(arg):
     hfe.write(fo.emit_header())
     hfe.close()
 
-    return ( [chip_enum.hdr_full_file_name,
-              chip_enum.src_full_file_name,
-              isa_set_enum.hdr_full_file_name,
-              isa_set_enum.src_full_file_name,
-              hfe.full_file_name, 
-              cfe.full_file_name], chips, isa_set)
+    return ( [ isa_set_per_chip_fn,
+               chip_enum.hdr_full_file_name,
+               chip_enum.src_full_file_name,
+               isa_set_enum.hdr_full_file_name,
+               isa_set_enum.src_full_file_name,
+               hfe.full_file_name, 
+               cfe.full_file_name],
+             chips, isa_set)
     
 
 class args_t(object):
@@ -246,6 +272,6 @@ if __name__ == '__main__':
     arg.xeddir = '.'
     arg.gendir = 'obj'
     files_created,chips,isa_set = work(arg)
-    print "Created files: %s" % (" ".join(files_created))
+    print("Created files: %s" % (" ".join(files_created)))
     sys.exit(0)
 

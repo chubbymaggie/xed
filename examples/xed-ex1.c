@@ -1,6 +1,6 @@
 /*BEGIN_LEGAL 
 
-Copyright (c) 2016 Intel Corporation
+Copyright (c) 2017 Intel Corporation
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ void print_misc(xed_decoded_inst_t* xedd) {
     const xed_inst_t* xi = xed_decoded_inst_inst(xedd);
     xed_exception_enum_t e = xed_inst_exception(xi);
     xed_uint_t np = xed_decoded_inst_get_nprefixes(xedd);
-    xed_uint_t vl_bits = xed_decoded_inst_vector_length_bits(xedd);
+
     xed_isa_set_enum_t isaset = xed_decoded_inst_get_isa_set(xedd);
 
     if (xed_operand_values_has_real_rep(ov)) {
@@ -71,20 +71,40 @@ void print_misc(xed_decoded_inst_t* xedd) {
     }
     if (xed_decoded_inst_is_broadcast(xedd))
         printf("BROADCAST\n");
+    
+    if ( xed_classify_sse(xedd) || xed_classify_avx(xedd) || xed_classify_avx512(xedd) )
+    {
+        if (xed_classify_avx512_maskop(xedd))
+            printf("AVX512 KMASK-OP\n");
+        else {
+            xed_bool_t sse = 0;
+            if (xed_classify_sse(xedd)) {
+                sse = 1;
+                printf("SSE\n");
+            }
+            else if (xed_classify_avx(xedd))
+                printf("AVX\n");
+            else if (xed_classify_avx512(xedd))
+                printf("AVX512\n");
+            
+            if (xed_decoded_inst_get_attribute(xedd, XED_ATTRIBUTE_SIMD_SCALAR))
+                printf("SCALAR\n");
+            else {
+                // xed_decoded_inst_vector_length_bits is only for VEX/EVEX instr.
+                // This will print 128 vl for FXSAVE and LD/ST MXCSR which is unfortunate.
+                xed_uint_t vl_bits = sse ? 128 : xed_decoded_inst_vector_length_bits(xedd);
+                printf("Vector length: %u \n", vl_bits);
+            }
+        }
+    }
 
     // does not include instructions that have XED_ATTRIBUTE_MASK_AS_CONTROL.
     // does not include vetor instructions that have k0 as a mask register.
     if (xed_decoded_inst_masked_vector_operation(xedd))
         printf("WRITE-MASKING\n");
 
-
     if (np) 
         printf("Number of legacy prefixes: %u \n", np);
-
-
-    if (vl_bits)
-        printf("Vector length: %u \n", vl_bits);
-
 
     printf("ISA SET: [%s]\n", xed_isa_set_enum_t2str(isaset));
     for(i=0; i<XED_MAX_CPUID_BITS_PER_ISA_SET; i++)
@@ -474,7 +494,7 @@ int main(int argc, char** argv) {
         printf("Must supply even number of nibbles per substring\n");
         exit(1);
     }
-    if (len >= XED_MAX_INSTRUCTION_BYTES*2) {
+    if (len > XED_MAX_INSTRUCTION_BYTES*2) {
         printf("Must supply at most 30 nibbles (15 bytes)\n");
         exit(1);
     }

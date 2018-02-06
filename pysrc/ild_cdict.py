@@ -1,6 +1,6 @@
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -63,7 +63,7 @@ def _set_state_space_from_ii(agi, ii, state_space):
     #look at prebindings too
     #for things like ZEROING that don't have all possible
     #values mentioned in patterns
-    for (name, binding) in ii.prebindings.items():
+    for (name, binding) in list(ii.prebindings.items()):
 
         bitnum = len(binding.bit_info_list)
         #dirty hack: we don't want big prebidnings to explode
@@ -152,7 +152,7 @@ def get_state_op_widths(agi, state_space):
     Returns a dictionary from operand name to operands bit width
     """
     widths_dict = {}
-    for opname,val_dict in state_space.items():
+    for opname,val_dict in list(state_space.items()):
         if opname in agi.operand_storage.get_operands():
             opnd = agi.operand_storage.get_operand(opname)
             widths_dict[opname] = int(opnd.bitwidth)
@@ -178,9 +178,6 @@ def get_state_op_widths(agi, state_space):
 #Following functions are for operands compressing
 
 _bin_MOD3 = 'MOD3'
-#FIXME: could have made a generic function is_binary_op_X
-#but it seems to be an overkill - most common binary ops are MOD
-#and RM
 def _is_binary_MOD3(ptrn_list):
     mod3_eq = 'MOD=3'
     mod3_neq = 'MOD!=3'
@@ -200,25 +197,33 @@ def _replace_MOD_with_MOD3(cnames, ptrn_list):
 
 _vd_token = 'VEXDEST210'
 _vd_token_7 = 'VEXDEST210_7'
-#FIXME: too hardcoded
-#this one is different: there are two possibilities: VD=7 and VD in [0..7]
-#hence VD7=1 will mean VD=7 and {VD7=0, VD7=0} will mean VD is any value
-#
-def _is_binary_VEXDEST210_7(cnames, ptrn_list):
-    found = False
+
+def _has_VEXDEST210_equals_7_restriction(cnames, ptrn_list):
+    """Return true if some pattern in the list of input pattern_t's has a
+       VVVV=1111 restriction. If that occurs, we can replace all
+       VEXDEST210 restricions since there are no other kinds of VVVV
+       restrictions.    """
     if _vd_token not in cnames:
         return False
+    
     for ptrn in ptrn_list:
-        cvals = ptrn.constraints[_vd_token]
-        if (len(cvals) == 1 and 7 in cvals):
-            found = True
-        elif (len(cvals) != 0):
-            return False
-    return found
+        if _vd_token_7 in ptrn.constraints:
+            genutil.die("XXX VEXDEST210_7 already exists in the patterns.")
+            
+    for ptrn in ptrn_list:
+        if _vd_token in ptrn.constraints:
+            cvals = ptrn.constraints[_vd_token]
+            if len(cvals) == 1 and 7 in cvals:
+                return True
+
+    return False
+
+
 
 def _replace_VEXDEST210_with_VD2107(cnames, ptrn_list):
     cnames.remove(_vd_token)
     cnames.add(_vd_token_7)
+    
     for ptrn in ptrn_list:
         found = False
         for bt in ptrn.ii.ipattern.bits:
@@ -233,22 +238,32 @@ def _replace_VEXDEST210_with_VD2107(cnames, ptrn_list):
 
 _rm_token = 'RM'
 _rm_token_4 = 'RM4'
-#FIXME: make one function for RM4 and VD7
 def _is_binary_RM_4(cnames, ptrn_list):
-    found = False
+    # ptrn_list is a list of ild.pattern_t.  Returns True if all
+    # patterns have just RM=4 as a constraint.
+
     if _rm_token not in cnames:
         return False
     for ptrn in ptrn_list:
-        cvals = ptrn.constraints[_rm_token]
-        if (len(cvals)==1) and 4 in cvals :
-            found = True
-        elif len(cvals) != 0:
+        # not all patterns have the _rm_token and querying the
+        # default-dictionary can add it. so we check first...
+        if _rm_token in ptrn.constraints:
+            cvals = ptrn.constraints[_rm_token]
+            if len(cvals) != 1:
+                # more than one constraint value
+                return False
+            elif 4 not in cvals: 
+                # one constraint value but it is not 4.
+                return False
+        else: # some pattern does not have and RM constraint
             return False
-        else: #len(cvals)==0
-            ptrn.constraints.pop(_rm_token)
-    return found
+        
+    # all have one constraint of RM=4.                
+    return True
 
 def _replace_RM_with_RM4(cnames, ptrn_list):
+    # ptrn_list is a list of ild.pattern_t
+    #
     # This looks for RM=4 in the pattern. It will not find "RM[0b100]"
     # so the patterns should NOT use that for specifying RM=4
     # requirements.  
@@ -259,7 +274,6 @@ def _replace_RM_with_RM4(cnames, ptrn_list):
     cnames.add(_rm_token_4)
     for ptrn in ptrn_list:
         found = False
-        #print "PATTERN BITS", "\t\n".join(map(str,ptrn.ii.ipattern.bits))
         for bt in ptrn.ii.ipattern.bits:
             if bt.token == _rm_token:
                 if bt.test == 'eq':
@@ -267,43 +281,37 @@ def _replace_RM_with_RM4(cnames, ptrn_list):
                     ptrn.constraints[_rm_token_4] = {1:True}
                     break
         if not found:
-            #print "X", str(cnames)
-            #print "\t\n".join(map(str,ptrn_list))
             ptrn.constraints[_rm_token_4] = {0:True, 1:True}
 
-#FIXME: probably should move this one to layers
 _mask_token = 'MASK'
 _mask_token_n0 = 'MASK_NOT0'
 _mask_token_zero = 'MASK_ZERO'
-#FIXME: make one function for is binary and replace_binary
 def _is_binary_MASK_NOT0(cnames, ptrn_list):
-    found = False
     if _mask_token not in cnames:
         return False
     for ptrn in ptrn_list:
-        cvals = ptrn.constraints[_mask_token]
-        # 7 of the 8 possible mask values without 0
-        if (len(cvals)==7) and 0 not in cvals :
-            found = True
-        elif len(cvals)==0:  #no constraint values -> any mask is ok
-            ptrn.constraints.pop(_mask_token)
-        else: 
+        # check before indexing to avoid creating entry in
+        # default-dict.
+        if _mask_token in ptrn.constraints:
+            cvals = ptrn.constraints[_mask_token]
+            if len(cvals)!=7:  
+                return False
+            elif 0 in cvals: # have 7 values but 0 is there so no good
+                return False
+        else: # some pattern does not have mask constraint
             return False
-    return found
+    return True
 
-def _is_binary_MASK_ZERO(cnames, ptrn_list):
-    found = False
+def _has_MASK_ZERO_restriction(cnames, ptrn_list):
+    """Return true if some pattern_t in the list has a MASK=000 restriction."""
     if _mask_token not in cnames:
         return False
     for ptrn in ptrn_list:
-        cvals = ptrn.constraints[_mask_token]
-        if (len(cvals)==1) and 0 in cvals :
-            found = True
-        elif len(cvals)==0:  #any mask, ok
-            ptrn.constraints.pop(_mask_token)
-        else:
-            return False
-    return found
+        if _mask_token in ptrn.constraints:
+            cvals = ptrn.constraints[_mask_token]
+            if len(cvals)==1 and 0 in cvals:
+                return True
+    return False
 
 
 def _replace_MASK_with_MASK_NOT0(cnames, ptrn_list):
@@ -330,9 +338,13 @@ def _replace_MASK_with_MASK_ZERO(cnames, ptrn_list):
         found = False
         for bt in ptrn.ii.ipattern.bits:
             if bt.token == _mask_token:
-                if bt.test == 'eq':
+                if bt.test == 'eq':   # assume mask == 0 FIXME: Should check!
                     found = True
                     ptrn.constraints[_mask_token_zero] = {1:True}
+                    break
+                elif bt.test == 'ne': # assume mask != 0. FIXME: Should check!
+                    found = True
+                    ptrn.constraints[_mask_token_zero] = {0:True}
                     break
         if not found:
             #mask is not in the pattern, all values of MASK_ZERO are valid 
@@ -370,9 +382,24 @@ def get_compressed_op_getter_fn(opname):
     """
     return operand_storage.get_op_getter_fn(opname)
 
+mod3_repl=0
+vd7_repl=0
+rm4_repl=0
+masknot0_repl=0
+mask0_repl=0
+
+def replacement_stats():
+    s = []
+    for x,y in [('MOD3', mod3_repl),
+                ('VD7', vd7_repl),
+                ('RM4', rm4_repl),
+                ('MASK!=0', masknot0_repl),
+                ('MASK=0',mask0_repl)]:
+        s.append('{} {}'.format(x,y))
+    return ', '.join(s)
+
 def _get_united_cdict(ptrn_list, state_space, vexvalid, all_ops_widths):
-    """
-    @param ptrn_list: list of ild.pattern_t
+    """@param ptrn_list: list of ild.pattern_t
     @param state_space: all legal values for xed operands:
                         state_space['REXW'][1] = True,
                         state_space['REXW'][0]=True
@@ -380,38 +407,49 @@ def _get_united_cdict(ptrn_list, state_space, vexvalid, all_ops_widths):
                     will include only patterns with vexvalid==0 constraint
                     value.
     @param all_ops_widths: dict of operands to their bit widths. 
+
     @return ild_cdict.constrant_dict_t which unites patterns constraint dicts
+
+    This gets called with all the patterns for a specific map &
+    opcode, but for all encoding spaces. So first we filter based on
+    encoding space (vexvalid).
+
     """
+    global mod3_repl, vd7_repl, rm4_repl, masknot0_repl, mask0_repl
     cnames = []
 
-    #take only requested space patterns
+    #filter by encoding space (vexvalid)
     ptrns = []
     for ptrn in ptrn_list:
-        if vexvalid in ptrn.constraints['VEXVALID'].keys():
+        if vexvalid in list(ptrn.special_constraints['VEXVALID'].keys()):
             ptrns.append(ptrn)
 
     if len(ptrns) == 0:
         return None
 
     for ptrn in ptrns:
-        cnames.extend(ptrn.constraints.keys())
+        cnames.extend(list(ptrn.constraints.keys()))
     cnames = set(cnames)
 
-    cdicts = []
     if _is_binary_MOD3(ptrns):
+        mod3_repl += 1
         _replace_MOD_with_MOD3(cnames, ptrns)
 
-    if _is_binary_VEXDEST210_7(cnames, ptrn_list):
-        _replace_VEXDEST210_with_VD2107(cnames, ptrn_list)
+    if _has_VEXDEST210_equals_7_restriction(cnames, ptrns): 
+        vd7_repl += 1
+        _replace_VEXDEST210_with_VD2107(cnames, ptrns)
+                
+    if _is_binary_RM_4(cnames, ptrns):
+        rm4_repl += 1
+        _replace_RM_with_RM4(cnames, ptrns)
 
-    if _is_binary_RM_4(cnames, ptrn_list):
-       _replace_RM_with_RM4(cnames, ptrn_list)
+    if _is_binary_MASK_NOT0(cnames, ptrns):
+        masknot0_repl += 1
+        _replace_MASK_with_MASK_NOT0(cnames, ptrns)
 
-    if _is_binary_MASK_NOT0(cnames, ptrn_list):
-       _replace_MASK_with_MASK_NOT0(cnames, ptrn_list)
-
-    if _is_binary_MASK_ZERO(cnames, ptrn_list):
-       _replace_MASK_with_MASK_ZERO(cnames, ptrn_list)
+    if _has_MASK_ZERO_restriction(cnames, ptrns): 
+        mask0_repl += 1
+        _replace_MASK_with_MASK_ZERO(cnames, ptrns)
 
     # For each pattern we have a list of constraints. ptrn.constraints
     # is the legal values for those constraints. In each map opcode
@@ -426,6 +464,7 @@ def _get_united_cdict(ptrn_list, state_space, vexvalid, all_ops_widths):
     #then for PATTERN1 we will create a constraint dictionary with all
     #combinations (MOD=1 REG=0), (MOD=1, REG=1) ,..., (MOD=1, REG=7)
     #and for PATTERN2 we will have (MOD=0 REG=2), (MOD=1 REG=2), ...
+    cdicts = []
     for ptrn in ptrns:
         cdict = constraint_dict_t(cnames, ptrn.constraints, state_space, ptrn)
         cdicts.append(cdict)
@@ -441,15 +480,17 @@ def _get_united_cdict(ptrn_list, state_space, vexvalid, all_ops_widths):
     
     #generate the int value for each tuple
     united_dict.create_tuple2int(all_ops_widths)
-    united_dict.strings_dict = ild_codegen._dec_strings
+
+    #print "UNITED DICT: VV {} OPCODE {} MAP {}:  tuples {}".format(
+    #    vexvalid, opcode, insn_map, len(united_dict.tuple2rule) )
     
     #creating the default action that will be taken when we did not hit 
     #a valid hash entry
     default_action = [actions.gen_return_action('0')]
     united_dict.action_codegen = actions_codegen.actions_codegen_t(
-                                                       united_dict.tuple2rule,
-                                                       default_action,
-                                                       united_dict.strings_dict)
+        united_dict.tuple2rule,
+        default_action,
+        united_dict.strings_dict)
     return united_dict
 
 
@@ -459,9 +500,18 @@ def _get_united_cdict(ptrn_list, state_space, vexvalid, all_ops_widths):
 class constraint_dict_t(object):
     def __init__(self, cnames=[], state_space={}, all_state_space={},
                  rule=None):
+         """cnames is sorted list of constraint names.
+        
+           state_space is the constraints from the pattern_t.
+
+           all_state_space is a dict w/legal values for all constraints in grammar.
+
+           rule is the ild.py pattern_t object (essentially the instruction). """
          #cnames is sorted list of strings - constraints' names that we want
          #this cdict to have
          self.cnames = sorted(list(cnames))
+
+         self.strings_dict = ild_codegen._dec_strings
 
          #state_space is a dict with constraints' values we want
          #this cdict to represent.
@@ -481,11 +531,8 @@ class constraint_dict_t(object):
          #cdicts. See _get_united_cdict() function
          self.all_state_space = all_state_space
 
+         # this is the ild.py:pattern_t
          self.rule = rule
-         
-         #dict mapping tuples to rules. 
-         #tuples are the constraint values (without the constraint names).
-         self.tuple2rule = {}
          
          #tuple2int maps the same tuples as tuple2int to hash key values.
          self.tuple2int = {}
@@ -495,9 +542,12 @@ class constraint_dict_t(object):
          
          #dict of all operands -> bit width.
          self.op_widths = {}
-
+         
+         #dict mapping tuples to rules. 
+         #tuples are the constraint values (without the constraint names).
+         self.tuple2rule = {}
          if len(state_space) > 0:
-             self.tuple2rule = self.make_cdict(self.cnames, {})
+             self.tuple2rule = self._initialize_tuple2rule(self.cnames, {})
 
     @staticmethod
     def unite_dicts(dict_list, err_msg, cnstr_names):
@@ -509,14 +559,16 @@ class constraint_dict_t(object):
         entry.
         """
 
-        if len(dict_list) == 0:
+        dlen = len(dict_list)
+        if dlen == 0:
             return None
-        if len(dict_list) == 1:
+        if dlen == 1:
             return dict_list[0]
+        
         res = constraint_dict_t(cnames=cnstr_names)
         for cdict in dict_list:
-            for key in cdict.tuple2rule.keys():
-                if key in res.tuple2rule:
+            for key in list(cdict.tuple2rule.keys()):
+                if key in res.tuple2rule:  # keys are tuples of constraint values
                     msg = []
                     msg.append("key: %s" % (key,))
                     msg.append("cdict:%s" % cdict)
@@ -530,9 +582,20 @@ class constraint_dict_t(object):
         return res
 
 
-    def make_cdict(self, cnames, tuple2rule):
+    def _initialize_tuple2rule(self, cnames, tuple2rule): # recursive
+        """look @ first cnames, get the possible values for it.  Add an entry
+        to the current tuple2rule dictionary with each possible value
+        and the current rule (which is the ild.py pattern_t, pointed
+        to by the set of constraints.).  Each time we recursively
+        call, we take the next constraint and add its values to the
+        key tuple for the dictionary.
+
+        """
         if len(cnames) == 0:
+            # when we are out of constraints, we return the fully
+            # constructed tuple.
             return tuple2rule
+        # pick off the cnames one at a time
         name = cnames[0]
         if name in self.state_space:
             vals = sorted(self.state_space[name].keys())
@@ -542,27 +605,29 @@ class constraint_dict_t(object):
             #initialize tuple2rule with singleton tuples
             for val in vals:
                 tuple2rule[(val,)] = self.rule
-            return self.make_cdict(cnames[1:], tuple2rule)
+            return self._initialize_tuple2rule(cnames[1:], tuple2rule)
         else:
             new_tuple2rule = {}
-            for key_tuple in tuple2rule.keys():
+            for key_tuple in list(tuple2rule.keys()):
                 for val in vals:
                     new_key = key_tuple + (val,)
                     new_tuple2rule[new_key] = self.rule
-            return self.make_cdict(cnames[1:], new_tuple2rule)
+            return self._initialize_tuple2rule(cnames[1:], new_tuple2rule)
 
     def get_all_keys_by_val(self, val):
-        return [k for k,v in self.tuple2rule.iteritems() if v == val]
+        return [k for k,v in self.tuple2rule.items() if v == val]
     
     def create_tuple2int(self, all_ops_widths):
-        ''' create the mapping of tuple to its int value '''
+        '''create the mapping of tuple to its int value by CONCATENTATING all
+        the input constraint values to make an integer that is
+        ultimately the input to the hash function. '''
         tuple2int = {}
         int2tuple = {}
-        for t in self.tuple2rule.iterkeys():
+        for t in self.tuple2rule.keys():
             res = tup2int.tuple2int(t, self.cnames, all_ops_widths)
             if res in int2tuple:
                 err = "the tuple % and the tuple %s generate the same value:%d"
-                die(err % (t,str(int2tuple[res]),res))    
+                genutil.die(err % (t,str(int2tuple[res]),res))    
             else:
                 tuple2int[t] = res
                 int2tuple[res] = t
@@ -577,9 +642,10 @@ class constraint_dict_t(object):
         return self.tuple2rule[tuple].ptrn
 
     def filter_tuples(self,tuples):
-        ''' from all the dictionaries in self, remove the tuples that are not
-        in the input tuples list.
-        return new instance of cdict '''
+        '''from all the dictionaries in self, remove the tuples that are not
+        in the input tuples list.  return new instance of cdict. This
+        is used for re-grouping tuples when making the 2nd level of
+        2-level hash tables. '''
         
         new_cdict = copy.copy(self)
         new_cdict.tuple2int = {}
@@ -590,7 +656,7 @@ class constraint_dict_t(object):
             
         
         new_cdict.int2tuple = dict((i,t) for t,i in 
-                                   new_cdict.tuple2int.iteritems())
+                                   new_cdict.tuple2int.items())
         
         return new_cdict
           
@@ -598,11 +664,11 @@ class constraint_dict_t(object):
         ''' return a tuple of the operand accessor function and the constraint 
         names that it represents '''
         
-        ptrn_list = self.tuple2rule.values()
-        if cname in _token_2_module.keys():
+        ptrn_list = list(self.tuple2rule.values())
+        if cname in list(_token_2_module.keys()):
             nt_module = _token_2_module[cname]
             getter_fn = nt_module.get_getter_fn(ptrn_list)
-            if not getter_fn:
+            if not getter_fn: # -> error
                     msg = 'Failed to resolve %s getter fn for '
                     msg += 'MAP:%s OPCODE:%s'
                     insn_map = ptrn_list[0].insn_map
@@ -664,18 +730,19 @@ def get_constraints_lu_table(ptrns_by_map_opcode, is_amd, state_space,
 def gen_ph_fos(agi, cdict_by_map_opcode, is_amd, log_fn,
                ptrn_dict, vv):
     """
-    Returns a tuple (phash_lu_table,phash_fo_list,op_lu_list)
-    phash_lu_table is a traditional 2D dict by map, opcode to a
-    hash function name.
-    phash_fo_list is a list of all phash function objects created
-    (we might have fos that are not in lookup table - when we have
-    2-level hash functions).
-    op_lu_list is a list for all the operands lookup functions
+    Returns a tuple (phash_lu_table, phash_fo_list, op_lu_list)
+    * phash_lu_table:  is a traditional 2D dict by map, opcode to a
+      hash function name.
+    * phash_fo_list: is a list of all phash function objects created
+      (we might have fos that are not in lookup table - when we have
+      2-level hash functions).
+    * op_lu_list:  is a list for all the operands lookup functions
+
     Also writes log file for debugging.
     """
     maps = ild_info.get_maps(is_amd)
     log_f = open(log_fn, 'w')
-    cnames = set()
+    cnames = set() # only for logging
     stats = {
              '0. #map-opcodes': 0,
              '1. #entries': 0,
@@ -686,10 +753,10 @@ def gen_ph_fos(agi, cdict_by_map_opcode, is_amd, log_fn,
              '6. #cdict_size_10_to_20': 0,
              '7. #cdict_size_20_to_100': 0,
              '8. #cdict_size_at_least_100': 0
-             }##
-    lu_fo_list = []
-    op_lu_map = {}
-    phash_lu = {}
+             }
+    lu_fo_list = []  
+    op_lu_map = {} # fn name -> fn obj
+    phash_lu = {}  # map, opcode -> fn name
     for insn_map in maps:
         phash_lu [insn_map] = {}
         for opcode in range(0, 256):
@@ -708,12 +775,13 @@ def gen_ph_fos(agi, cdict_by_map_opcode, is_amd, log_fn,
                     phash_id = 'map%s_opcode%s_vv%d' % (insn_map, opcode,
                                                         vv)
                     fname = "%s_%s" % (_find_fn_pfx,phash_id)
-                    (fo_list,op_lu_fo) = phash.gen_find_fos(fname)
+                    (fo_list, op_lu_fo) = phash.gen_find_fos(fname)
                     lu_fo_list.extend(fo_list)
 
                     #hold only one instance of each function
-                    if op_lu_fo.function_name not in op_lu_map:
-                        op_lu_map[op_lu_fo.function_name] = op_lu_fo
+                    if op_lu_fo:
+                        if op_lu_fo.function_name not in op_lu_map:
+                            op_lu_map[op_lu_fo.function_name] = op_lu_fo
                     for fo in fo_list:
                         _log(log_f,'//find function:\n')
                         _log(log_f,fo.emit())
@@ -734,5 +802,5 @@ def gen_ph_fos(agi, cdict_by_map_opcode, is_amd, log_fn,
     for key in sorted(stats.keys()):
         _log(log_f,"%s %s\n" % (key,stats[key]))
     log_f.close()
-    return phash_lu,lu_fo_list,op_lu_map.values()
+    return phash_lu,lu_fo_list,list(op_lu_map.values())
 

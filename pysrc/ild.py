@@ -1,6 +1,6 @@
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -65,7 +65,6 @@ _xed_3dnow_category = '3DNOW'
 
 _mode_token = 'MODE'
 
-_vexvalid_op = 'VEXVALID'
 
 
 #checks if we have 3dnow instructions
@@ -87,7 +86,7 @@ def _is_amd3dnow(agi):
 #mostly modrm-related
 def _get_nested_nts(agi):
     nested_nts = set()
-    for nt_name in agi.nonterminal_dict.keys():
+    for nt_name in list(agi.nonterminal_dict.keys()):
         g = agi.generator_dict[nt_name]
         ii = g.parser_output.instructions[0]
         if genutil.field_check(ii,'iclass'):
@@ -113,19 +112,19 @@ def init_debug(agi):
     debugdir = agi.common.options.gendir
     debug = open(mbuild.join(debugdir, 'ild_debug.txt'), 'w')
 
-def gen_xed3(agi,ild_info,is_3dnow,ild_patterns,
-            all_state_space,ild_gendir,all_ops_widths):
+def gen_xed3(agi, ild_info, is_3dnow, ild_patterns,
+             all_state_space, ild_gendir, all_ops_widths):
     all_cnames = set()
-    ptrn_dict = {}
+    ptrn_dict = {}  # map,opcode -> pattern
     maps = ild_info.get_maps(is_3dnow)
     for insn_map in maps:
             ptrn_dict[insn_map] = collections.defaultdict(list)
     for ptrn in ild_patterns:
         ptrn_dict[ptrn.insn_map][ptrn.opcode].append(ptrn)
     #FIXME:bad name
-    vv_lu = {}
+    vv_lu = {} # vexvalid-space -> ( ph_lu, lu_fo_list)
     #mapping between a operands to their look up function
-    op_lu_map = {}
+    op_lu_map = {}  # func name -> function (for unique-ifying)
 
     for vv in sorted(all_state_space['VEXVALID'].keys()):
         #cdict is a 2D dictionary:
@@ -139,17 +138,27 @@ def gen_xed3(agi,ild_info,is_3dnow,ild_patterns,
                                                           all_state_space,
                                                           vv,
                                                           all_ops_widths)
+        
+        #print "AAA VV={}: {}".format(vv, ild_cdict.replacement_stats())
+        
         all_cnames = all_cnames.union(cnames)
         _msg("vv%s cnames: %s" % (vv,cnames))
+        
+        constraints_log_file = mbuild.join(ild_gendir,
+                                           'all_constraints_vv%s.txt' %vv)
 
         #now generate the C hash functions for the constraint
-        #dictionaries
-        (ph_lu,lu_fo_list,operands_lu_list) = ild_cdict.gen_ph_fos(
+        #dictionaries.
+        #
+        # ph_lu            map from map,opcode -> hash fn name
+        # lu_fo_list       list of all phash fn objects
+        # operands_lu_list list of operands lookup fns
+        #
+        (ph_lu, lu_fo_list, operands_lu_list) = ild_cdict.gen_ph_fos(
             agi, 
             cdict,
             is_3dnow,
-            mbuild.join(ild_gendir,
-                        'all_constraints_vv%s.txt' %vv),
+            constraints_log_file,
             ptrn_dict, 
             vv)
         #hold only one instance of each function
@@ -159,13 +168,14 @@ def gen_xed3(agi,ild_info,is_3dnow,ild_patterns,
 
         vv_lu[str(vv)] = (ph_lu,lu_fo_list)
     _msg("all cnames: %s" % all_cnames)
-    #dump the hash functions and lookup tables for obtaining these
-    #hash functions in the decode time
+    #dump the (a) hash functions and (b) lookup tables for obtaining
+    #these hash functions (at decode time)
     ild_codegen.dump_vv_map_lookup(agi,
                                    vv_lu,
                                    is_3dnow,
-                                   op_lu_map.values(),
+                                   list(op_lu_map.values()),
                                    h_fn='xed3-phash.h')
+    
     #xed3_nt.work generates all the functions and lookup tables for
     #dynamic decoding
     xed3_nt.work(agi, all_state_space, all_ops_widths, ild_patterns)
@@ -213,21 +223,21 @@ def work(agi):
         _msg(nt_name)
 
     nested_nts = _get_nested_nts(agi)
-    _msg("\NESTED NTS:")
+    _msg("\nNESTED NTS:")
     for nt_name in nested_nts:
         _msg(nt_name)
 
     #Get dictionary with all legal values for all interesting operands
     all_state_space = ild_cdict.get_all_constraints_state_space(agi)
     _msg("ALL_STATE_SPACE:")
-    for k,v in all_state_space.items():
+    for k,v in list(all_state_space.items()):
             _msg("%s: %s"% (k,v))
 
     #Get widths for the operands
     all_ops_widths = ild_cdict.get_state_op_widths(agi, all_state_space)
 
     _msg("ALL_OPS_WIDTHS:")
-    for k,v in all_ops_widths.items():
+    for k,v in list(all_ops_widths.items()):
             _msg("%s: %s"% (k,v))
 
     #generate a list of pattern_t objects that describes the ISA.
@@ -283,9 +293,9 @@ def work(agi):
 
         getters_dict =  agi.common.ild_getters_dict
         dump_header_with_header(agi, 'xed-ild-getters.h', getters_dict)
-
-        gen_xed3(agi,ild_info,is_3dnow,ild_patterns,
-                 all_state_space,ild_gendir,all_ops_widths)
+        
+        gen_xed3(agi, ild_info, is_3dnow, ild_patterns, 
+                 all_state_space, ild_gendir, all_ops_widths)
 
 def dump_header_with_header(agi, fname, header_dict):
     """ emit the header fname.
@@ -591,11 +601,20 @@ class pattern_t(object):
         xed3_nt.get_ii_constraints(ii, state_space, self.constraints)
         #print "CONSTRAINTS: {}".format(self.constraints)
 
-        #special care for VEXVALID - it makes it easy to dispatch
-        #vex and legacy instructions:
-        #for legacy we will explicitly set VEXVALID=0
-        if _vexvalid_op not in self.constraints:
-            self.constraints[_vexvalid_op] = {0:True}
+        #special care for VEXVALID - it makes it easy to dispatch vex
+        #and legacy instructions. For legacy we will explicitly set
+        #VEXVALID=0.
+        if 'VEXVALID' not in self.constraints:
+            self.constraints['VEXVALID'] = {0:True}
+
+        # since we dispatch at the high level on MAP and VEXVALID, we
+        # should not include them in the standard constraints.
+        self.special_constraints = {}
+        for od in ['MAP','VEXVALID']:
+            if od in self.constraints:
+                self.special_constraints[od] = self.constraints[od]
+                del self.constraints[od]
+
 
     def set_mode(self, ii, mode_space):
         for bit_info in ii.ipattern.bits:
@@ -751,11 +770,21 @@ class pattern_t(object):
         printed_members.append('EASZ_SEQ:\t %s' % self.easz_nt_seq)
         printed_members.append('IMM_SEQ\t: %s' % self.imm_nt_seq)
         printed_members.append('DISP_SEQ\t: %s' % self.disp_nt_seq)
-        printed_members.append('CONSTRAINTS\t: %s' % self.constraints)
+        
+        printed_members.append('CONSTRAINTS\t: {}'.format(self.emit_constraints()))
         printed_members.append('INUM\t: %s' % self.ii.inum)
 
         return "{\n"+ ",\n".join(printed_members) + "\n}"
-
+    
+    def emit_constraints(self):
+        sl = []
+        for k in self.constraints.keys():
+            v = self.constraints[k] # dict with always true-valued items.
+            # Only keys of v are relevant.
+            s = "{}:{} ".format(k,str(v.keys()))
+            sl.append(s)
+        return "".join(sl)
+        
     def __eq__(self, other):
         return (other != None and
                 self.ptrn == other.ptrn and

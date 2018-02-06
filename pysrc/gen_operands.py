@@ -2,7 +2,7 @@
 # -*- python -*-
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 #  limitations under the License.
 #  
 #END_LEGAL
-
+from __future__ import print_function
 import os
 import sys
 import argparse
@@ -37,8 +37,11 @@ def msgb(b,s=''):
 def work(args):  # main function
     msgb("READING XED DB")
 
+
     xeddb = read_xed_db.xed_reader_t(args.state_bits_filename,
-                                     args.instructions_filename)
+                                     args.instructions_filename,
+                                     args.widths_filename,
+                                     args.element_types_filename)
 
     histo = collections.defaultdict(int)
     for r in xeddb.recs:
@@ -56,9 +59,9 @@ def work(args):  # main function
         
 
 
-    for k,v in sorted( histo.items(), key=lambda t: t[1] ):
-        print "{0:4d} {1}".format(v,k)
-    print "TOTAL: ", len(histo)
+    for k,v in sorted( list(histo.items()), key=lambda t: t[1] ):
+        print("{0:4d} {1}".format(v,k))
+    print("TOTAL: ", len(histo))
 
     return 0
 
@@ -70,6 +73,10 @@ def setup():
                         help='Input state bits file')
     parser.add_argument('instructions_filename', 
                         help='Input instructions file')
+    parser.add_argument('widths_filename', 
+                        help='Input chip file')
+    parser.add_argument('element_types_filename', 
+                        help='Input chip file')
     args = parser.parse_args()
     return args
 

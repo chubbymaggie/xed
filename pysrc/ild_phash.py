@@ -1,6 +1,6 @@
 #BEGIN_LEGAL
 #
-#Copyright (c) 2016 Intel Corporation
+#Copyright (c) 2017 Intel Corporation
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -193,7 +193,7 @@ class phash_t(object):
     def get_find_fn(self, func_id):
         return '%s_%s' %(_find_fn_pfx, func_id)
 
-    def gen_find_fos(self, fname):
+    def gen_find_fos(self, fname):  # phash_t
         obj_str = self.cdict.strings_dict['obj_str']
         obj_type = self.cdict.strings_dict['obj_type']
         key_str= self.cdict.strings_dict['key_str']
@@ -206,6 +206,8 @@ class phash_t(object):
         if genutil.field_check(self.cdict, 'ntluf') or \
             genutil.field_check(self.cdict, 'nt'):
             return_type = 'xed_uint32_t'
+        elif self.hash_f.kind() == 'trivial':
+            return_type = 'xed_uint32_t'
         else:
             return_type = self.cdict.action_codegen.get_return_type()
         static = self.cdict.strings_dict['static']
@@ -215,33 +217,47 @@ class phash_t(object):
                                        inline=False)
 
         lu_operands = '_'.join(self.cdict.cnames)
+        # temporary function name. we override this later
         lu_operands_fn = 'xed_lu_%s' % lu_operands 
         key_ctype = self.cdict.strings_dict['key_type']
-        operand_lu_fo = codegen.function_object_t(lu_operands_fn,
-                                       return_type=key_ctype,
-                                       static=False,
-                                       inline=False,
-                                       force_no_inline=True)
-        ild_arg = "%s%s* %s" % (const,obj_type, obj_str)
+
+        ild_arg = "%s%s* %s" % (const, obj_type, obj_str)
         fo.add_arg(ild_arg)
-        if genutil.field_check(self.cdict, 'ntluf'):
-            fo.add_arg('xed_reg_enum_t arg_reg')
-        operand_lu_fo.add_arg(ild_arg)
-        #add key-computing code (constraints tuple to integer)
-        nt_lups = self.add_cgen_key_lines(operand_lu_fo)
-        #several non terminals has special getter functions
-        #the add-cgen_kiet function returns a list of all the nt_lups and 
-        #regular cnames  
-        lu_operands_fn = 'xed_%s_lu_%s' % (lu_namespace,'_'.join(nt_lups))
-        operand_lu_fo.set_function_name(lu_operands_fn)
         
-        #add the operands lookup function
-        self.add_lu_table(fo)
-        self.add_op_lu_function(fo,lu_operands_fn)
-        self.add_find_lines(fo)
+        if self.hash_f.kind() == 'trivial':
+            operand_lu_fo = None
+            # rule is a pattern_t
+            fo.add_code_eol("return {}".format(self.cdict.rule.ii.inum))
+            # avoid parmameter-not-used warnings with compilers that
+            # care (like MSVS)
+            fo.add_code_eol("(void)d") 
+        else:
+            operand_lu_fo = codegen.function_object_t(lu_operands_fn,
+                                           return_type=key_ctype,
+                                           static=False,
+                                           inline=False,
+                                           force_no_inline=True)
+            operand_lu_fo.add_arg(ild_arg)
+            if genutil.field_check(self.cdict, 'ntluf'):
+                fo.add_arg('xed_reg_enum_t arg_reg')
+
+            #add key-computing code (constraints tuple to integer)
+            nt_lups = self.add_cgen_key_lines(operand_lu_fo)
+            #Several nonterminals have special getter functions.  The
+            #add_cgen_key_lines function returns a list of all the
+            #nt_lups and regular cnames.  (lu_operands is not always
+            #the same as the underscore-joined nt_lups.)
+            lu_operands_fn = 'xed_%s_lu_%s' % (lu_namespace,'_'.join(nt_lups))
+            operand_lu_fo.set_function_name(lu_operands_fn)
+        
+            #add the operands lookup function
+            self.add_lu_table(fo)
+            self.add_op_lu_function(fo,lu_operands_fn)
+            self.add_find_lines(fo)
+            
         
         return ([fo],operand_lu_fo)
-
+                            
     def __str__(self):
         lines = ['-----------PHASH-------------']
         lines.append('tuple scheme:')
@@ -250,7 +266,7 @@ class phash_t(object):
         lines.append('m=%d' % self.hash_f.get_table_size())
         lines.append('%s' % self.hash_f)
         lines.append('tuple x -> value')
-        for tuple_val in self.tuple_dict.keys():
+        for tuple_val in list(self.tuple_dict.keys()):
             x = self.t2x[tuple_val]
             value = self.tuple_dict[tuple_val]
             line = '%s %s -> %s' % (tuple_val,x, str(value))
@@ -278,9 +294,9 @@ class phash_t(object):
 class l1_phash_t(phash_t):
     def __init__(self, cdict, hash_f):
         phash_t.__init__(self, cdict, hash_f)
-        for t,x in cdict.tuple2int.iteritems():
+        for t,x in cdict.tuple2int.items():
             hash_val = self.hash_f.apply(x)
-            if hash_val in self.x2hx.values():
+            if hash_val in list(self.x2hx.values()):
                 msg = "l1_phash_t: %s\n function is not perfect!\n"
                 msg += 'hashval=%d , x2hx: %s' % (hash_val, self.x2hx)
                 ildutil.ild_err(msg)
@@ -292,8 +308,6 @@ class l1_phash_t(phash_t):
             # legal ordinal starts at 1 
             self.cdict.tuple2rule[t].index = hash_val + 1 
             
-        #for key sequence postprocessing analysis
-        #sys.stderr.write("KEYS:" + " ".join(map(str,sorted(self.x2hx.keys()))) + '\n')
 
     def __str__(self):
         lines = ['-----------1-LEVEL-PHASH-------------']
@@ -319,7 +333,7 @@ class l2_phash_t(phash_t):
         phash_t.__init__(self, cdict, hash_f)
 
         hx2tuples = collections.defaultdict(list)
-        for t,x in self.cdict.tuple2int.iteritems():
+        for t,x in self.cdict.tuple2int.items():
             hx = self.hash_f.apply(x)
             if len(hx2tuples[hx]) >= _l1_bucket_max: 
                 msg = "l2_phash_t: function does not distribute well!\n"
@@ -330,13 +344,13 @@ class l2_phash_t(phash_t):
             self.hx2x[hx] = x
 
         self.hx2phash = {}
-        for hx,tuples in hx2tuples.iteritems():
+        for hx,tuples in hx2tuples.items():
             new_cdict = self.cdict.filter_tuples(tuples)
             
             # try (1)linear, then (2)hashmul then (3) fks for the 2nd
             # level of hash function.
             phash = None
-            if _is_linear(new_cdict.int2tuple.keys()):
+            if _is_linear(list(new_cdict.int2tuple.keys())):
                 phash = _get_linear_hash_function(new_cdict)
             if not phash:
                 phash = _find_l1_phash_mul(new_cdict)
@@ -347,7 +361,7 @@ class l2_phash_t(phash_t):
                 self.hx2phash[hx] = phash
             else:
                 lines = []
-                for k,v in new_cdict.tuple2rule.items():
+                for k,v in list(new_cdict.tuple2rule.items()):
                     lines.append('%s -> %s'% ((k,), v))
                 str = '\n'.join(lines)
                 ildutil.ild_err("Failed to find l1 phash for dict %s" %
@@ -379,7 +393,7 @@ class l2_phash_t(phash_t):
 
         elems = []
         #invert the x2hx mapping
-        hx2x = dict((hx,x) for x,hx in self.x2hx.iteritems())
+        hx2x = dict((hx,x) for x,hx in self.x2hx.items())
 
         for hx in range(0, self.hash_f.get_table_size()):
             if hx in hx2fo:
@@ -407,14 +421,16 @@ class l2_phash_t(phash_t):
         #fo.add_code('}')
         #fo.add_code_eol('return %s' % _notfound_str)
 
-    def gen_find_fos(self, fname):
+    def gen_find_fos(self, fname):  # L2 phash
         obj_str = self.cdict.strings_dict['obj_str']
         obj_type = self.cdict.strings_dict['obj_type']
         const = self.cdict.strings_dict['obj_const']
         hx2fo = {}
-        for hx,phash in self.hx2phash.items():
+        for hx,phash in list(self.hx2phash.items()):
             fid = '%s_%d_l1' % (fname, hx)
             (hx2fo_list,operand_lu_fo) = phash.gen_find_fos(fid)
+            if not operand_lu_fo:
+               genutil.die("L2 hash cannot have trivial operand lu fn")             
             hx2fo[hx] = hx2fo_list[0]
 
         fname = '%s' % fname
@@ -435,14 +451,14 @@ class l2_phash_t(phash_t):
         lu_fname = operand_lu_fo.function_name
         self.add_op_lu_function(fo, lu_fname)
         self.add_find_lines(fo)
-        fos = hx2fo.values()
+        fos = list(hx2fo.values())
         fos.append(fo)
         #all the operand_lu_fo going to be the same so we just take the last one
         return fos,operand_lu_fo
 
     def get_size(self):
         size = self.hash_f.get_table_size()
-        for phash in self.hx2phash.values():
+        for phash in list(self.hx2phash.values()):
             size += phash.get_size()
         return size
 
@@ -450,7 +466,7 @@ class l2_phash_t(phash_t):
         lines = ['-----------2-LEVEL-PHASH-------------']
         lines.append('m=%d' % self.hash_f.get_table_size())
         lines.append('%s' % self.hash_f)
-        for tuple_val in self.cdict.tuple2rule.keys():
+        for tuple_val in list(self.cdict.tuple2rule.keys()):
             lines.append('-------------------------------------')
             lines.append('tuple x h(x) ->  l1_phash')
             x = self.cdict.tuple2int[tuple_val]
@@ -462,6 +478,34 @@ class l2_phash_t(phash_t):
         return '\n'.join(lines) + '\n'
 
 
+def _zero_constraints(cdict):
+    if len(cdict.cnames)==0:
+        return True
+    return False
+
+class trivial_hash_func_t(xedhash.hash_fun_interface_t):
+    """This is a hash function that works with no inputs. Always returns true"""
+    def __init__(self):
+        pass
+    def kind(self):
+        return "trivial"
+    def get_table_size(self):
+        return 1
+    def apply(self,x):
+        return 0 # not used
+    def emit_cexpr(self, key_str='key'):
+        return '0' # not used
+    
+    def need_hash_index_validation(self):
+        return False
+    def __str__(self):
+        return "h(x) = always true"
+    
+def _get_zero_constraint_hash(cdict):
+    ''' returns a l1_phash_t that generate a trivial function that is always true'''
+    hash_f = trivial_hash_func_t()
+    return l1_phash_t(cdict, hash_f)
+    
 def _is_linear(keys):
     ''' @param keys: list of keys
         @return: True is the keys in the input list are sequential 
@@ -475,14 +519,14 @@ def _is_linear(keys):
 
 def _get_linear_hash_function(cdict):
     ''' returns phash_t object with a linear_funct_t as the hash function'''
-    keylist = cdict.int2tuple.keys()
+    keylist = list(cdict.int2tuple.keys())
     hash_f = hashlin.get_linear_hash_function(keylist)
     return l1_phash_t(cdict, hash_f)    
     
 
 
 def _find_l1_phash_fks(cdict):
-    hashfn =  hashfks.find_fks_perfect(cdict.tuple2int.values())
+    hashfn =  hashfks.find_fks_perfect(list(cdict.tuple2int.values()))
     if hashfn:
         return l1_phash_t(cdict, hashfn)
     return None
@@ -491,7 +535,7 @@ def _find_l1_phash_fks(cdict):
 def _find_candidate_lengths_mul(lst):
     """Return integer lengths n, n*1.1, n*1.2, ... n*1.9, n*2"""
     n = len(lst)
-    r = map(lambda x: int(math.ceil((1 + x/10.0)*n)), range(0,11))
+    r = [ int(math.ceil((1 + x/10.0)*n)) for x in range(0,11)]
     # avoid duplicates
     s = set()
     for a in r:
@@ -506,7 +550,7 @@ def _find_l1_phash_mul(cdict):
     candidate_lengths = _find_candidate_lengths_mul(cdict.tuple2int)
     for p in candidate_lengths:
         hash_f = hashmul.hashmul_t(p)
-        if hash_f.is_perfect(cdict.tuple2int.itervalues()):
+        if hash_f.is_perfect(iter(cdict.tuple2int.values())):
             return l1_phash_t(cdict, hash_f)
         del hash_f
     return None
@@ -548,8 +592,11 @@ def _find_l2_phash(cdict):
 def _gen_hash_one_level(cdict):
     """Generate a 1 level hash function or give up"""
 
+    if _zero_constraints(cdict):
+        return _get_zero_constraint_hash(cdict)
+    
     # linear means all keys are sequential. not required to be zero-based. 
-    if _is_linear(cdict.int2tuple.keys()):
+    if _is_linear(list(cdict.int2tuple.keys())):
         return _get_linear_hash_function(cdict)
 
     phash = _find_l1_phash_mul(cdict)
